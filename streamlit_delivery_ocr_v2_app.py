@@ -248,7 +248,6 @@ def process_delivery_files(delivery_files):
 
             for line in lines:
                 line = " ".join(line.split())
-                line_lower = line.lower()
 
                 if not line:
                     continue
@@ -590,12 +589,16 @@ if process_clicked:
 
         wb, matched_df, not_found_df, unmatched_df = update_tracker_workbook(wb, summary_df, raw_df)
 
-        updated_tracker_bytes = workbook_to_bytes(wb)
-
         ocr_results_bytes = dataframe_to_excel_bytes(
             {
-                "Raw_OCR_Data": raw_df if not raw_df.empty else pd.DataFrame(),
+                "Parsed_OCR_Rows": raw_df if not raw_df.empty else pd.DataFrame(),
                 "Summarized_Totals": summary_df if not summary_df.empty else pd.DataFrame(),
+            }
+        )
+
+        parsed_rows_export_bytes = dataframe_to_excel_bytes(
+            {
+                "Parsed_OCR_Rows": raw_df if not raw_df.empty else pd.DataFrame()
             }
         )
 
@@ -604,6 +607,8 @@ if process_clicked:
                 "OCR_Raw_Text": ocr_text_df if not ocr_text_df.empty else pd.DataFrame()
             }
         )
+
+        updated_tracker_bytes = workbook_to_bytes(wb)
 
         unmatched_export_bytes = None
         if unmatched_df is not None and not unmatched_df.empty:
@@ -618,6 +623,7 @@ if process_clicked:
         "preview_images": preview_images,
         "updated_tracker_bytes": updated_tracker_bytes,
         "ocr_results_bytes": ocr_results_bytes,
+        "parsed_rows_export_bytes": parsed_rows_export_bytes,
         "ocr_text_export_bytes": ocr_text_export_bytes,
         "ocr_text_df": ocr_text_df,
         "unmatched_export_bytes": unmatched_export_bytes,
@@ -638,6 +644,7 @@ if st.session_state.processed:
     preview_images = results["preview_images"]
     updated_tracker_bytes = results["updated_tracker_bytes"]
     ocr_results_bytes = results["ocr_results_bytes"]
+    parsed_rows_export_bytes = results["parsed_rows_export_bytes"]
     ocr_text_export_bytes = results["ocr_text_export_bytes"]
     ocr_text_df = results["ocr_text_df"]
     unmatched_export_bytes = results["unmatched_export_bytes"]
@@ -660,6 +667,12 @@ if st.session_state.processed:
         st.subheader("Matched Rows")
         st.dataframe(matched_df, use_container_width=True)
 
+    with st.expander("Parsed OCR Rows Preview", expanded=False):
+        st.dataframe(raw_df, use_container_width=True)
+
+    with st.expander("OCR Raw Text Preview", expanded=False):
+        st.dataframe(ocr_text_df, use_container_width=True)
+
     st.subheader("Unmatched Items")
     if unmatched_df is not None and not unmatched_df.empty:
         st.dataframe(unmatched_df, use_container_width=True)
@@ -669,9 +682,6 @@ if st.session_state.processed:
     if not not_found_df.empty:
         with st.expander("Summary items not found in tracker", expanded=False):
             st.dataframe(not_found_df, use_container_width=True)
-
-    with st.expander("OCR Raw Text Preview", expanded=False):
-        st.dataframe(ocr_text_df, use_container_width=True)
 
     st.download_button(
         label="Download Updated Tracker",
@@ -684,6 +694,13 @@ if st.session_state.processed:
         label="Download OCR Results",
         data=ocr_results_bytes,
         file_name="OCR_Results.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
+    st.download_button(
+        label="Download Parsed OCR Rows",
+        data=parsed_rows_export_bytes,
+        file_name="Parsed_OCR_Rows.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
 
