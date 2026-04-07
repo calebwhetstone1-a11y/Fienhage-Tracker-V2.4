@@ -192,21 +192,6 @@ def load_pages_from_upload(uploaded_file):
         return [img]
 
 
-def stitch_pages_vertically(pages):
-    widths, heights = zip(*(p.size for p in pages))
-    max_width = max(widths)
-    total_height = sum(heights)
-
-    stitched = Image.new("L", (max_width, total_height), color=255)
-
-    y_offset = 0
-    for page in pages:
-        stitched.paste(page, (0, y_offset))
-        y_offset += page.size[1]
-
-    return stitched
-
-
 def process_delivery_files(delivery_files):
     all_items = []
     preview_images = []
@@ -221,109 +206,115 @@ def process_delivery_files(delivery_files):
         )
 
         pages = load_pages_from_upload(uploaded_file)
-        stitched_img = stitch_pages_vertically(pages)
 
-        processed_img = ImageOps.autocontrast(stitched_img)
+        for page_index, page_img in enumerate(pages, start=1):
+            processed_img = ImageOps.autocontrast(page_img)
+            preview_images.append((f"{uploaded_file.name} - Page {page_index}", processed_img))
 
-        preview_images.append((uploaded_file.name, processed_img))
-
-        text = pytesseract.image_to_string(
-            processed_img,
-            config="--psm 6 -c preserve_interword_spaces=1"
-        )
-        document_number = extract_document_number(text)
-
-        lines = text.split("\n")
-        capture = False
-        current_colli = ""
-
-        for line in lines:
-            line = " ".join(line.split())
-            line_lower = line.lower()
-
-            detected_colli = extract_colli_number(line)
-            if detected_colli:
-                current_colli = detected_colli
-
-            if is_table_header(line):
-                capture = True
-                continue
-
-            if not capture:
-                continue
-
-            line = re.split(
-                r"(total\s+colli|anzahl\s+colli\s*:?)",
-                line,
-                flags=re.IGNORECASE
-            )[0].strip()
-
-            if is_end_of_table(line):
-                capture = False
-                continue
-
-            if not line:
-                continue
-
-            item_match = re.search(r"^(\d{4}\s*-\s*\d{4})\s+(.+)$", line)
-            if not item_match:
-                continue
-
-            item_no = re.sub(r"\s*-\s*", "-", item_match.group(1).strip())
-            remainder = item_match.group(2).strip()
-
-            description = None
-            quantity = None
-            unit = None
-
-            qty_match = re.search(
-                r"(.+?)\s+([\d.,]+)\s+(piece|stück|pcs?|bundle|kg|pc|roll|rolle|set|sets|meter|metre|each|einh\.?)\b",
-                remainder,
-                re.IGNORECASE,
+            text = pytesseract.image_to_string(
+                processed_img,
+                config="--psm 6 -c preserve_interword_spaces=1"
             )
 
-            if qty_match:
-                description = qty_match.group(1).strip()
-                qty_raw = qty_match.group(2).strip()
-                unit = qty_match.group(3).strip().lower()
+            document_number = extract_document_number(text)
 
-                try:
-                    quantity = normalize_quantity_text(qty_raw)
-                except Exception:
-                    quantity = None
+            lines = text.split("\n")
+            capture = False
+            current_colli = ""
+            page_item_count = 0
 
-            if quantity is None:
-                fallback_match = re.search(
-                    r"(.+?)\s+([\d.,]+)(?:\s+\w+)?$",
+            for line in lines:
+                line = " ".join(line.split())
+                line_lower = line.lower()
+
+                if not line:
+                    continue
+
+                detected_colli = extract_colli_number(line)
+                if detected_colli:
+                    current_colli = detected_colli
+
+                if is_table_header(line):
+                    capture = True
+                    continue
+
+                if not capture:
+                    continue
+
+                line = re.split(
+                    r"(total\s+colli|anzahl\s+colli\s*:?)",
+                    line,
+                    flags=re.IGNORECASE
+                )[0].strip()
+
+                if is_end_of_table(line):
+                    capture = False
+                    continue
+
+                if not line:
+                    continue
+
+                item_match = re.search(r"^(\d{4}\s*-\s*\d{4})\s+(.+)$", line)
+                if not item_match:
+                    continue
+
+                item_no = re.sub(r"\s*-\s*", "-", item_match.group(1).strip())
+                remainder = item_match.group(2).strip()
+
+                description = None
+                quantity = None
+                unit = None
+
+                qty_match = re.search(
+                    r"(.+?)\s+([\d.,]+)\s+(piece|stück|pcs?|bundle|kg|pc|roll|rolle|set|sets|meter|metre|each|einh\.?)\b",
                     remainder,
                     re.IGNORECASE,
                 )
 
-                if fallback_match:
-                    description = fallback_match.group(1).strip()
-                    qty_raw = fallback_match.group(2).strip()
-                    unit = "fallback"
+                if qty_match:
+                    description = qty_match.group(1).strip()
+                    qty_raw = qty_match.group(2).strip()
+                    unit = qty_match.group(3).strip().lower()
 
                     try:
                         quantity = normalize_quantity_text(qty_raw)
                     except Exception:
                         quantity = None
 
-            if quantity is None or description is None:
-                continue
+                if quantity is None:
+                    fallback_match = re.search(
+                        r"(.+?)\s+([\d.,]+)(?:\s+\w+)?$",
+                        remainder,
+                        re.IGNORECASE,
+                    )
 
-            all_items.append(
-                {
-                    "ItemNo": item_no,
-                    "Description": description,
-                    "Quantity": quantity,
-                    "Unit": unit,
-                    "ColliNo": current_colli,
-                    "DocumentNumber": document_number,
-                    "SourceFile": uploaded_file.name,
-                    "PageNumber": "ALL",
-                }
-            )
+                    if fallback_match:
+                        description = fallback_match.group(1).strip()
+                        qty_raw = fallback_match.group(2).strip()
+                        unit = "fallback"
+
+                        try:
+                            quantity = normalize_quantity_text(qty_raw)
+                        except Exception:
+                            quantity = None
+
+                if quantity is None or description is None:
+                    continue
+
+                all_items.append(
+                    {
+                        "ItemNo": item_no,
+                        "Description": description,
+                        "Quantity": quantity,
+                        "Unit": unit,
+                        "ColliNo": current_colli,
+                        "DocumentNumber": document_number,
+                        "SourceFile": uploaded_file.name,
+                        "PageNumber": page_index,
+                    }
+                )
+
+                page_item_count += 1
 
     progress.progress(100, text="OCR processing complete.")
 
